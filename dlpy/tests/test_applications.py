@@ -31,8 +31,9 @@ import unittest
 import json
 import os
 import pandas as pd
-
-
+from dlpy.utils import caslibify
+from dlpy.model import MomentumSolver, Optimizer, DataSpec
+from dlpy.utils import file_exist_on_server, get_anchors
 class TestApplications(unittest.TestCase):
     server_type = None
     s = None
@@ -958,6 +959,296 @@ class TestApplications(unittest.TestCase):
         model.print_summary()
         self.assertEqual(model.summary.iloc[148, -1], 18874368)
 
+    def test_YoloV2_train_classnum_mismatch(self):
+
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('chess_yolo.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        #yolo_anchors = get_anchors(self.s, coord_type='yolo', data='trainset')
+        yolo_anchors = [
+            2696.873493975904,
+            1078.1472556894244,
+            3283.62248995984,
+            2736.949576082106,
+            2045.5617469879517,
+            3366.982597054886,
+            2347.092943201377,
+            2183.3436603557084,
+            2782.939759036145,
+            4885.9330655957165
+        ]
+        yolo_model = Tiny_YoloV2(self.s,
+                                 n_classes=2,
+                                 predictions_per_grid=5,
+                                 anchors=yolo_anchors,
+                                 max_boxes=100,
+                                 coord_type='yolo',
+                                 max_label_per_image=1,
+                                 class_scale=1.0,
+                                 coord_scale=1.0,
+                                 prediction_not_a_object_scale=1,
+                                 object_scale=5,
+                                 detection_threshold=0.2,
+                                 iou_threshold=0.2)
+
+        targets = ['_nObjects_']
+        for i in range(0, 3):
+            targets.append('_Object%d_' % i)
+            for sp in ["x", "y", "width", "height"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        inputVars = []
+        inputVars.insert(0, '_image_')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=10, log_level=2, max_epochs=1, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='Input1', data=inputVars),
+                      DataSpec(type_='OBJECTDETECTION', layer='Detection1', data=targets)]
+        res = yolo_model.fit(data='trainset',
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=1,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual (res.debug, '0x903fe995:TKDL_OBJDET_CLASSNUM_MISMATCH')
+
+    def test_YoloV2_train_objs_exceed_maximum(self):
+
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('chess_yolo.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        #yolo_anchors = get_anchors(self.s, coord_type='yolo', data='trainset')
+        yolo_anchors = [
+            2696.873493975904,
+            1078.1472556894244,
+            3283.62248995984,
+            2736.949576082106,
+            2045.5617469879517,
+            3366.982597054886,
+            2347.092943201377,
+            2183.3436603557084,
+            2782.939759036145,
+            4885.9330655957165
+        ]
+        yolo_model = Tiny_YoloV2(self.s,
+                                 n_classes=4,
+                                 predictions_per_grid=5,
+                                 anchors=yolo_anchors,
+                                 max_boxes=100,
+                                 coord_type='yolo',
+                                 max_label_per_image=1,
+                                 class_scale=1.0,
+                                 coord_scale=1.0,
+                                 prediction_not_a_object_scale=1,
+                                 object_scale=5,
+                                 detection_threshold=0.2,
+                                 iou_threshold=0.2)
+
+        targets = ['_nObjects_']
+        for i in range(0, 3):
+            targets.append('_Object%d_' % i)
+            for sp in ["x", "y", "width", "height"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        inputVars = []
+        inputVars.insert(0, '_image_')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=10, log_level=2, max_epochs=1, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='Input1', data=inputVars),
+                      DataSpec(type_='OBJECTDETECTION', layer='Detection1', data=targets)]
+        res = yolo_model.fit(data='trainset',
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=1,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual (res.debug, '0x903fea0c:TKDL_DETECTION_LABELED_OBJECTS_EXCEED_MAXIMUM')
+
+    def test_YoloV2_train_coord_mismatch(self):
+
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('chess_coco.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        #yolo_anchors = get_anchors(self.s, coord_type='yolo', data='trainset')
+        yolo_anchors = [
+            2696.873493975904,
+            1078.1472556894244,
+            3283.62248995984,
+            2736.949576082106,
+            2045.5617469879517,
+            3366.982597054886,
+            2347.092943201377,
+            2183.3436603557084,
+            2782.939759036145,
+            4885.9330655957165
+        ]
+        yolo_model = Tiny_YoloV2(self.s,
+                                 n_classes=4,
+                                 predictions_per_grid=5,
+                                 anchors=yolo_anchors,
+                                 max_boxes=100,
+                                 coord_type='yolo',
+                                 max_label_per_image=1,
+                                 class_scale=1.0,
+                                 coord_scale=1.0,
+                                 prediction_not_a_object_scale=1,
+                                 object_scale=5,
+                                 detection_threshold=0.2,
+                                 iou_threshold=0.2)
+
+        targets = ['_nObjects_']
+        for i in range(0, 3):
+            targets.append('_Object%d_' % i)
+            for sp in ["x", "y", "width", "height"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        inputVars = []
+        inputVars.insert(0, '_image_')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=10, log_level=2, max_epochs=1, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='Input1', data=inputVars),
+                      DataSpec(type_='OBJECTDETECTION', layer='Detection1', data=targets)]
+        res = yolo_model.fit(data='trainset',
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=1,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual (res.debug, '0x8affc037:TKCASU_COLUMN_DOESNOT_EXIST')
+
+        self.s.loadtable('chess_yolo.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset_yolo', replace=1))
+        yolo_model = Tiny_YoloV2(self.s,
+                                 n_classes=4,
+                                 predictions_per_grid=5,
+                                 anchors=yolo_anchors,
+                                 max_boxes=100,
+                                 coord_type='rect',
+                                 max_label_per_image=1000,
+                                 class_scale=1.0,
+                                 coord_scale=1.0,
+                                 prediction_not_a_object_scale=1,
+                                 object_scale=5,
+                                 detection_threshold=0.2,
+                                 iou_threshold=0.2)
+        res = yolo_model.fit(data='trainset_yolo',
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=1,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual (res.debug, '0x903feb15:TKDL_LABELED_OBJECT_UNUSUAL')
+
+        soptimizer = Optimizer(algorithm=solver, mini_batch_size=10, log_level=2, max_epochs=1, reg_l2=0.005)
+        optimizer.__setitem__('ignore_training_error', True)
+        res = yolo_model.fit(data='trainset_yolo',
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=1,
+                       record_seed=13309,
+                       log_level=5,
+                       force_equal_padding=True)
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(len(res.messages), 18)
+        self.assertEqual(len(res.OptIterHistory.Loss), 1)
+
+    def test_YoloV2_train_normal(self):
+
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('chess_yolo.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        yolo_anchors = [
+            2696.873493975904,
+            1078.1472556894244,
+            3283.62248995984,
+            2736.949576082106,
+            2045.5617469879517,
+            3366.982597054886,
+            2347.092943201377,
+            2183.3436603557084,
+            2782.939759036145,
+            4885.9330655957165
+        ]
+        yolo_model = Tiny_YoloV2(self.s,
+                                 n_classes=4,
+                                 predictions_per_grid=5,
+                                 anchors=yolo_anchors,
+                                 max_boxes=100,
+                                 coord_type='yolo',
+                                 max_label_per_image=100,
+                                 class_scale=1.0,
+                                 coord_scale=1.0,
+                                 prediction_not_a_object_scale=1,
+                                 object_scale=5,
+                                 detection_threshold=0.2,
+                                 iou_threshold=0.2)
+
+        targets = ['_nObjects_']
+        for i in range(0, 3):
+            targets.append('_Object%d_' % i)
+            for sp in ["x", "y", "width", "height"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        inputVars = []
+        inputVars.insert(0, '_image_')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=10, log_level=2, max_epochs=2, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='Input1', data=inputVars),
+                      DataSpec(type_='OBJECTDETECTION', layer='Detection1', data=targets)]
+        res = yolo_model.fit(data='trainset',
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=1,
+                       record_seed=13309,
+                       force_equal_padding=True)
+
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(len(res.messages), 19)
+        self.assertEqual(len(res.OptIterHistory.Loss), 2)
 
 if __name__ == '__main__':
     unittest.main()

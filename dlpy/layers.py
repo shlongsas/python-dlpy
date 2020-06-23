@@ -197,7 +197,7 @@ class Layer(object):
         if isinstance(inputs, list):
             if len(inputs) > 1 and layer_type not in ['Concat', 'Res', 'Scale', 'CLoss',
                                                       'Dense', 'Model', 'OutputLayer', 'ROIPooling', 'FastRCNN',
-                                                      'Recurrent', 'EmbeddingLoss']:
+                                                      'Recurrent', 'EmbeddingLoss', 'ROIAlign', 'MaskRCNN']:
                 raise DLPyError('The input of {} should have only one layer.'.format(layer_type))
         else:
             inputs = [inputs]
@@ -1301,7 +1301,10 @@ class Dense(Layer):
                 return 0
             if isinstance(self.src_layers[0].output_size, int):
                 return self.src_layers[0].output_size
-            self._num_features = multiply_elements(self.src_layers[0].output_size)
+            if (len(self.src_layers[0].output_size) > 3):
+                self._num_features = multiply_elements(self.src_layers[0].output_size[0:3])
+            else:
+                self._num_features = multiply_elements(self.src_layers[0].output_size)
         return self._num_features
 
     @property
@@ -2462,7 +2465,51 @@ class ROIPooling(Layer):
     def output_size(self):
         if self._output_size is None:
             self._output_size = (int(self.config['output_width']), int(self.config['output_height']),
-                                 int(self.src_layers[0].output_size[1]))
+                                 int(self.src_layers[0].output_size[2]),  # depth of the tensor
+                                 int(self.src_layers[1].output_size[1])   # number of RoIs
+                                )
+        return self._output_size
+
+    @property
+    def num_bias(self):
+        return 0
+
+
+class ROIAlign(Layer):
+    type = 'roialign'
+    type_label = 'ROIAlign'
+    type_desc = 'RoI Align layer'
+    can_be_last_layer = False
+    number_of_instances = 0
+
+    def __init__(self, name=None, act='AUTO', output_height=7, output_width=7, spatial_scale=0.0625, src_layers=None,
+                 **kwargs):
+
+        if not __dev__ and len(kwargs) > 0:
+            raise DLPyError('**kwargs can be used only in development mode.')
+
+        parameters = locals()
+        parameters = _unpack_config(parameters)
+        # _clean_parameters(parameters)
+        Layer.__init__(self, name, parameters, src_layers)
+        self._output_size = None
+        self.color_code = get_color(self.type)
+
+    @property
+    def kernel_size(self):
+        return None
+
+    @property
+    def num_weights(self):
+        return 0
+
+    @property
+    def output_size(self):
+        if self._output_size is None:
+            self._output_size = (int(self.config['output_width']), int(self.config['output_height']),
+                                 int(self.src_layers[0].output_size[2]),  # number of channel for the feature map
+                                 int(self.src_layers[1].output_size[1]    # number of RoIs
+                                     ))
         return self._output_size
 
     @property
@@ -2536,6 +2583,44 @@ class FastRCNN(Layer):
     def output_size(self):
         if self._output_size is None:
             self._output_size = self.src_layers[0].output_size
+        return self._output_size
+
+    @property
+    def num_bias(self):
+        return 0
+
+
+class MaskRCNN(Layer):
+    type = 'maskrcnn'
+    type_label = 'MaskRCNN'
+    type_desc = 'MaskRCNN layer'
+    can_be_last_layer = True
+    number_of_instances = 0
+
+    def __init__(self, name=None, act='AUTO', class_number=20, mask_threshold=0.5, max_label_per_image=200,
+                 src_layers=None, **kwargs):
+        if not __dev__ and len(kwargs) > 0:
+            raise DLPyError('**kwargs can be used only in development mode.')
+
+        parameters = locals()
+        parameters = _unpack_config(parameters)
+        # _clean_parameters(parameters)
+        Layer.__init__(self, name, parameters, src_layers)
+        self._output_size = None
+        self.color_code = get_color(self.type)
+
+    @property
+    def kernel_size(self):
+        return None
+
+    @property
+    def num_weights(self):
+        return 0
+
+    @property
+    def output_size(self):
+        if self._output_size is None:
+            self.src_layers[0].output_size
         return self._output_size
 
     @property

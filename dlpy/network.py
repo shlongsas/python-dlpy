@@ -24,7 +24,7 @@ from dlpy.layers import Layer
 from dlpy.utils import DLPyError, input_table_check, random_name, check_caslib, get_server_path_sep, \
     underscore_to_camelcase, caslibify_context, isnotebook, file_exist_on_server
 from .layers import InputLayer, Conv2d, Pooling, BN, Res, Concat, Dense, OutputLayer, Keypoints, Detection, Scale, \
-    Reshape, GroupConv2d, ChannelShuffle, RegionProposal, ROIPooling, FastRCNN, Conv2DTranspose, Recurrent, \
+    Reshape, GroupConv2d, ChannelShuffle, RegionProposal, ROIPooling, FastRCNN, ROIAlign, MaskRCNN, Conv2DTranspose, Recurrent, \
     LayerNormalization, MultiHeadAttention, Survival, EmbeddingLoss, Segmentation, FCMPLayer, Clustering, Split
 import dlpy.model
 import collections
@@ -34,8 +34,7 @@ from copy import deepcopy
 from swat.cas.table import CASTable
 from . import __dev__
 
-UNSUPPORTED_EXTRACT_LAYER = {20: "FULLCONNECTCAP", 21: "NORMCAP", 30: "ROIALIGN", 31: "NAS_LAYER",
-                             32: "MASKRCNN"
+UNSUPPORTED_EXTRACT_LAYER = {20: "FULLCONNECTCAP", 21: "NORMCAP", 31: "NAS_LAYER"
                              }
 
 
@@ -411,6 +410,10 @@ class Network(Layer):
                 model.layers.append(extract_layernorm_layer(layer_table=layer_table))
             elif layer_type == 29:
                 model.layers.append(extract_mhattention_layer(layer_table = layer_table))
+            elif layer_type == 30:
+                model.layers.append(extract_roialign_layer(layer_table = layer_table))
+            elif layer_type == 32:
+                model.layers.append(extract_maskrcnn_layer(layer_table = layer_table))
             elif layer_type == 33:
                 model.layers.append(extract_split_layer(layer_table = layer_table))
             else:
@@ -904,6 +907,10 @@ class Network(Layer):
                     self.layers.append(extract_mhattention_layer(layer_table = layer_table))
                 elif layer_type == 33:
                     self.layers.append(extract_split_layer(layer_table = layer_table))
+                elif layer_type == 30:
+                    model.layers.append(extract_roialign_layer(layer_table = layer_table))
+                elif layer_type == 32:
+                    model.layers.append(extract_maskrcnn_layer(layer_table = layer_table))
                 else:
                     raise DLPyError("Extracting Layer type, {}, is not"
                                     " supported yet.".format(UNSUPPORTED_EXTRACT_LAYER[layer_type]))
@@ -2959,6 +2966,40 @@ def extract_roipooling_layer(layer_table):
     return layer
 
 
+def extract_roialign_layer(layer_table):
+    '''
+    Extract layer configuration from a RoiAlign layer table
+
+    Parameters
+    ----------
+    layer_table : table
+        Specifies the selection of table containing the information
+        for the layer.
+
+    Returns
+    -------
+    :class:`dict`
+        Options that can be passed to layer definition
+
+    '''
+    num_keys = ['output_height', 'spatial_scale', 'output_width', 'sampling_ratio']
+    str_keys = ['act']
+
+    roialign_layer_config = dict()
+    for key in num_keys:
+        try:
+            roialign_layer_config[key] = layer_table['_DLNumVal_'][
+                layer_table['_DLKey1_'] == 'dlRoiAlignLayeropts.' + underscore_to_camelcase(key)].tolist()[0]
+        except IndexError:
+            pass
+    roialign_layer_config.update(get_str_configs(str_keys, 'dlRoiAlignLayeropts', layer_table))
+
+    roialign_layer_config['name'] = layer_table['_DLKey0_'].unique()[0]
+
+    layer = ROIAlign(**roialign_layer_config)
+    return layer
+
+
 def extract_fastrcnn_layer(layer_table):
     '''
     Extract layer configuration from a Fast RCNN layer table
@@ -2988,6 +3029,38 @@ def extract_fastrcnn_layer(layer_table):
     rpn_layer_config['name'] = layer_table['_DLKey0_'].unique()[0]
 
     layer = FastRCNN(**rpn_layer_config)
+    return layer
+
+
+def extract_maskrcnn_layer(layer_table):
+    '''
+    Extract layer configuration from a Mask RCNN layer table
+
+    Parameters
+    ----------
+    layer_table : table
+        Specifies the selection of table containing the information
+        for the layer.
+
+    Returns
+    -------
+    :class:`dict`
+        Options that can be passed to layer definition
+
+    '''
+    num_keys = ['class_number', 'max_label_per_image', 'mask_threshold']
+
+    maskrcnn_layer_config = dict()
+    for key in num_keys:
+        try:
+            maskrcnn_layer_config[key] = layer_table['_DLNumVal_'][
+                layer_table['_DLKey1_'] == 'dlMaskRcnnLayeropts.' + underscore_to_camelcase(key)].tolist()[0]
+        except IndexError:
+            pass
+
+    maskrcnn_layer_config['name'] = layer_table['_DLKey0_'].unique()[0]
+
+    layer = MaskRCNN(**maskrcnn_layer_config)
     return layer
 
 

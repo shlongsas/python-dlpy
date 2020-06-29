@@ -81,7 +81,7 @@ def Toy_MaskRCNN(conn, model_table='TOY_Faster_RCNN', n_channels=3, width=1000, 
     return mask_rcnn_model
 
 
-class TestDetection(unittest.TestCase):
+class TestMaskRCNN(unittest.TestCase):
     server_type = None
     s = None
     server_sep = '/'
@@ -122,7 +122,7 @@ class TestDetection(unittest.TestCase):
         del self.s
         swat.reset_option()
 
-    def test_summary(self):
+    def testsummary(self):
         anchor_ratio = [0.5, 1, 2]
         anchor_scale = [16, 32, 64]
         base_anchor_size = 16
@@ -133,6 +133,142 @@ class TestDetection(unittest.TestCase):
                                      detection_threshold=0.5, max_object_num=100, number_of_neurons_in_fc=2048,
                                      roialign_height=14, roialign_width=14, mask_threshold=0.5)
         maskrnn_model.print_summary()
+
+    def test_maskrcnn_missing_spec(self):
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('imageInstantMaskNOclu1000_1.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        train_table = self.s.CASTable('trainset')
+        #max_objs = int(self.s.freq(train_table, inputs='_nObjects_').Frequency['NumVar'].max())
+        max_objs = 6;
+        targets = ['_nObjects_']
+        for i in range(0, max_objs):
+            targets.append('_Object%d_' % i)
+            for sp in ["xmin", "ymin", "xmax", "ymax"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        input_vars = []
+        input_vars.insert(0, '_image_')
+        mask_vars = []
+        mask_vars.insert(0, 'labels')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='data', data=input_vars),
+                      DataSpec(type_='OBJECTDETECTION', layer='rois', data=targets)
+                      ]
+
+        maskrcnn_model = Toy_MaskRCNN(self.s, n_channels=3, n_classes=6)
+
+        res = maskrcnn_model.fit(train_table,
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=2,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual(res.debug, '0x903fe97d:TKDL_DATASPEC_REQUIRED')
+
+    def test_maskrcnn_wrong_class(self):
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('imageInstantMaskNOclu1000_1.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        train_table = self.s.CASTable('trainset')
+        #max_objs = int(self.s.freq(train_table, inputs='_nObjects_').Frequency['NumVar'].max())
+        max_objs = 6
+        targets = ['_nObjects_']
+        for i in range(0, max_objs):
+            targets.append('_Object%d_' % i)
+            for sp in ["xmin", "ymin", "xmax", "ymax"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        input_vars = []
+        input_vars.insert(0, '_image_')
+        mask_vars = []
+        mask_vars.insert(0, 'labels')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='data', data=input_vars),
+                      DataSpec(type_='OBJECTDETECTION', layer='rois', data=targets),
+                      DataSpec(type_='IMAGE', layer='mask_rcnn', data=mask_vars)
+                      ]
+
+        maskrcnn_model = Toy_MaskRCNN(self.s, n_channels=3, n_classes=6)
+
+        res = maskrcnn_model.fit(train_table,
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=2,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual(res.debug, '0x903fe995:TKDL_OBJDET_CLASSNUM_MISMATCH')
+
+    def test_maskrcnn_train(self):
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('imageInstantMaskNOclu1000_1.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        train_table = self.s.CASTable('trainset')
+        #max_objs = int(self.s.freq(train_table, inputs='_nObjects_').Frequency['NumVar'].max())
+        max_objs = 6
+        targets = ['_nObjects_']
+        for i in range(0, max_objs):
+            targets.append('_Object%d_' % i)
+            for sp in ["xmin", "ymin", "xmax", "ymax"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        input_vars = []
+        input_vars.insert(0, '_image_')
+        mask_vars = []
+        mask_vars.insert(0, 'labels')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='data', data=input_vars),
+                      DataSpec(type_='OBJECTDETECTION', layer='rois', data=targets),
+                      DataSpec(type_='IMAGE', layer='mask_rcnn', data=mask_vars)
+                      ]
+
+        maskrcnn_model = Toy_MaskRCNN(self.s, n_channels=3, n_classes=2)
+
+        res = maskrcnn_model.fit(train_table,
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=2,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(len(res.messages), 31)
+        self.assertEqual(len(res.OptIterHistory.Loss), 1)
 
 if __name__ == '__main__':
     unittest.main()

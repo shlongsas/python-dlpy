@@ -1055,6 +1055,62 @@ class TestDetection(unittest.TestCase):
         self.assertEqual(len(res_gpu.OptIterHistory.Loss), 1)
         self.assertEqual(len(res_gpu.messages), 31)
 
+    def test_FasterRCNN_train_freeze_layers(self):
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                               datasource={'srctype': 'path'},
+                               name='dnfs',
+                               path=self.data_dir,
+                               subdirectories=False)
+
+        self.s.loadtable('rcnn_1000x496_small_coco.sashdat',
+                         caslib='dnfs',
+                         casout=dict(name='trainset', replace=1))
+
+        train_table = self.s.CASTable('trainset')
+        max_objs = int(self.s.freq(train_table, inputs='_nObjects_').Frequency['NumVar'].max())
+
+        targets = ['_nObjects_']
+        for i in range(0, max_objs):
+            targets.append('_Object%d_' % i)
+            for sp in ["xmin", "ymin", "xmax", "ymax"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        inputVars = []
+        inputVars.insert(0, '_image_')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1,
+                              reg_l2=0.005, freeze_layers_to='roi_pooling')
+        data_specs = [DataSpec(type_='IMAGE', layer='data', data=inputVars),
+                      DataSpec(type_='OBJECTDETECTION', layer='rois', data=targets)]
+        faster_rcnn_model = Toy_FasterRCNN(self.s, n_channels=3, n_classes=6, coord_type='Coco')
+        res_gpu = faster_rcnn_model.fit(train_table,
+                                    optimizer=optimizer,
+                                    data_specs=data_specs,
+                                    n_threads=2,
+                                    record_seed=13309,
+                                    force_equal_padding=True)
+
+        self.assertEqual(res_gpu.status_code, 0)
+        self.assertEqual(len(res_gpu.OptIterHistory.Loss), 1)
+        self.assertEqual(len(res_gpu.messages), 31)
+
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1, reg_l2=0.005,
+                              freeze_layers_to='fastrcnn')
+
+        res = faster_rcnn_model.fit(train_table,
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=2,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(len(res.messages), 31)
+        self.assertEqual(len(res.OptIterHistory.Loss), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

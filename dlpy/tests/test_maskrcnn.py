@@ -80,7 +80,6 @@ def Toy_MaskRCNN(conn, model_table='TOY_Faster_RCNN', n_channels=3, width=1000, 
     mask_rcnn_model.compile()
     return mask_rcnn_model
 
-
 class TestMaskRCNN(unittest.TestCase):
     server_type = None
     s = None
@@ -223,7 +222,7 @@ class TestMaskRCNN(unittest.TestCase):
                        force_equal_padding=True)
         self.assertEqual(res.debug, '0x903fe995:TKDL_OBJDET_CLASSNUM_MISMATCH')
 
-    def test_maskrcnn_train(self):
+    def test_maskrcnn_train_cpu_normal(self):
         if self.data_dir is None:
             unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
 
@@ -269,6 +268,119 @@ class TestMaskRCNN(unittest.TestCase):
         self.assertEqual(res.status_code, 0)
         self.assertEqual(len(res.messages), 31)
         self.assertEqual(len(res.OptIterHistory.Loss), 1)
+
+    def test_maskrcnn_train_freezeLayers (self):
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('imageInstantMaskNOclu1000_1.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        train_table = self.s.CASTable('trainset')
+        #max_objs = int(self.s.freq(train_table, inputs='_nObjects_').Frequency['NumVar'].max())
+        max_objs = 6
+        targets = ['_nObjects_']
+        for i in range(0, max_objs):
+            targets.append('_Object%d_' % i)
+            for sp in ["xmin", "ymin", "xmax", "ymax"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        input_vars = []
+        input_vars.insert(0, '_image_')
+        mask_vars = []
+        mask_vars.insert(0, 'labels')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1, reg_l2=0.005,
+                              freeze_layers_to='roi_align')
+        data_specs = [DataSpec(type_='IMAGE', layer='data', data=input_vars),
+                      DataSpec(type_='OBJECTDETECTION', layer='rois', data=targets),
+                      DataSpec(type_='IMAGE', layer='mask_rcnn', data=mask_vars)
+                      ]
+
+        maskrcnn_model = Toy_MaskRCNN(self.s, n_channels=3, n_classes=2)
+
+        res = maskrcnn_model.fit(train_table,
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=2,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(len(res.messages), 31)
+        self.assertEqual(len(res.OptIterHistory.Loss), 1)
+
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1, reg_l2=0.005,
+                              freeze_layers_to='mask_rcnn')
+
+        res = maskrcnn_model.fit(train_table,
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=2,
+                       record_seed=13309,
+                       force_equal_padding=True)
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(len(res.messages), 31)
+        self.assertEqual(len(res.OptIterHistory.Loss), 1)
+
+    def test_maskrcnn_score (self):
+        if self.data_dir is None:
+            unittest.TestCase.skipTest(self, "DLPY_DATA_DIR is not set in the environment variables")
+
+        self.s.table.addcaslib(activeonadd=False,
+                          datasource={'srctype': 'path'},
+                          name='dnfs',
+                          path=self.data_dir,
+                          subdirectories=False)
+
+        self.s.loadtable('imageInstantMaskNOclu1000_1.sashdat',
+                          caslib='dnfs',
+                          casout=dict(name='trainset', replace=1))
+
+        train_table = self.s.CASTable('trainset')
+        #max_objs = int(self.s.freq(train_table, inputs='_nObjects_').Frequency['NumVar'].max())
+        max_objs = 6
+        targets = ['_nObjects_']
+        for i in range(0, max_objs):
+            targets.append('_Object%d_' % i)
+            for sp in ["xmin", "ymin", "xmax", "ymax"]:
+                targets.append('_Object%d_%s' % (i, sp))
+
+        input_vars = []
+        input_vars.insert(0, '_image_')
+        mask_vars = []
+        mask_vars.insert(0, 'labels')
+
+        solver = MomentumSolver(learning_rate=0.001, clip_grad_max=100, clip_grad_min=-100)
+        optimizer = Optimizer(algorithm=solver, mini_batch_size=4, log_level=2, max_epochs=1, reg_l2=0.005)
+        data_specs = [DataSpec(type_='IMAGE', layer='data', data=input_vars),
+                      DataSpec(type_='OBJECTDETECTION', layer='rois', data=targets),
+                      DataSpec(type_='IMAGE', layer='mask_rcnn', data=mask_vars)
+                      ]
+
+        maskrcnn_model = Toy_MaskRCNN(self.s, n_channels=3, n_classes=2)
+
+        res = maskrcnn_model.fit(train_table,
+                       optimizer=optimizer,
+                       data_specs=data_specs,
+                       n_threads=2,
+                       record_seed=13309,
+                       gpu=Gpu(devices=0),
+                       force_equal_padding=True)
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(len(res.messages), 32)
+        self.assertEqual(len(res.OptIterHistory.Loss), 1)
+
+        res_score = maskrcnn_model.predict(data='trainset', n_threads=1)
+        self.assertEqual(res.status_code, 0)
+        self.assertEqual(res_score.ScoreInfo.size, 8)
 
 if __name__ == '__main__':
     unittest.main()
